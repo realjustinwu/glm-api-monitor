@@ -26,17 +26,63 @@ Clients only need to change the API host to point at the proxy. Everything else 
 
 ## Quick Start
 
-### 1. Start Services
+### Option A: Use Pre-built Image (Recommended)
+
+Docker Hub: [realjustinwu/glm-api-monitor](https://hub.docker.com/r/realjustinwu/glm-api-monitor)
+
+Create a `docker-compose.yml`:
+
+```yaml
+services:
+  proxy:
+    image: realjustinwu/glm-api-monitor:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://glm:glm@timescaledb:5432/glm_monitor
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=glm
+      - POSTGRES_PASSWORD=glm
+      - POSTGRES_DB=glm_monitor
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glm -d glm_monitor"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  timescaledb_data:
+```
+
+Or run with Docker only (you need a separate TimescaleDB instance):
 
 ```bash
+docker run -d --name glm-monitor \
+  -p 8000:8000 \
+  -e DATABASE_URL=postgresql://glm:glm@your-db-host:5432/glm_monitor \
+  realjustinwu/glm-api-monitor:latest
+```
+
+### Option B: Build from Source
+
+```bash
+git clone https://github.com/realjustinwu/glm-api-monitor.git
+cd glm-api-monitor
 docker compose up -d
 ```
 
-Two services are included:
-- `proxy`: FastAPI proxy on port 8000
-- `timescaledb`: Time-series database on port 5432
-
-### 2. Configure Client
+### Configure Client
 
 Change the GLM API base URL to the proxy address:
 

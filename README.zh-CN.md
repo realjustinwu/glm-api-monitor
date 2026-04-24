@@ -26,17 +26,63 @@ Client → Proxy (:8000) → open.bigmodel.cn
 
 ## 快速开始
 
-### 1. 启动服务
+### 方式 A：使用预构建镜像（推荐）
+
+Docker Hub: [realjustinwu/glm-api-monitor](https://hub.docker.com/r/realjustinwu/glm-api-monitor)
+
+创建 `docker-compose.yml`：
+
+```yaml
+services:
+  proxy:
+    image: realjustinwu/glm-api-monitor:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://glm:glm@timescaledb:5432/glm_monitor
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=glm
+      - POSTGRES_PASSWORD=glm
+      - POSTGRES_DB=glm_monitor
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glm -d glm_monitor"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  timescaledb_data:
+```
+
+或仅使用 Docker 运行（需要单独的 TimescaleDB 实例）：
 
 ```bash
+docker run -d --name glm-monitor \
+  -p 8000:8000 \
+  -e DATABASE_URL=postgresql://glm:glm@your-db-host:5432/glm_monitor \
+  realjustinwu/glm-api-monitor:latest
+```
+
+### 方式 B：从源码构建
+
+```bash
+git clone https://github.com/realjustinwu/glm-api-monitor.git
+cd glm-api-monitor
 docker compose up -d
 ```
 
-包含两个服务：
-- `proxy`：FastAPI 代理，端口 8000
-- `timescaledb`：时序数据库，端口 5432
-
-### 2. 修改客户端配置
+### 修改客户端配置
 
 将 GLM API 的 base URL 改为代理地址：
 

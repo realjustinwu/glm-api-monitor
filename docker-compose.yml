@@ -1,0 +1,32 @@
+services:
+  proxy:
+    build: .
+    ports:
+      - "${PROXY_PORT:-8000}:8000"
+    environment:
+      - GLM_UPSTREAM_URL=${GLM_UPSTREAM_URL:-https://open.bigmodel.cn}
+      - DATABASE_URL=postgresql://glm:glm@timescaledb:5432/glm_monitor
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-120}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=glm
+      - POSTGRES_PASSWORD=glm
+      - POSTGRES_DB=glm_monitor
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glm -d glm_monitor"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  timescaledb_data:

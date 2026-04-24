@@ -37,11 +37,12 @@ async def write_stats(stats: dict) -> None:
         for tool_name in stats.get("tool_calls", []):
             await conn.execute(
                 """
-                INSERT INTO tool_calls (time, request_id, tool_name)
-                VALUES ($1, $2, $3)
+                INSERT INTO tool_calls (time, request_id, api_key, tool_name)
+                VALUES ($1, $2, $3, $4)
                 """,
                 now,
                 stats["request_id"],
+                stats["api_key"],
                 tool_name,
             )
 

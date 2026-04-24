@@ -49,6 +49,7 @@ async def init_db(database_url: str) -> asyncpg.Pool:
             CREATE TABLE IF NOT EXISTS tool_calls (
                 time        TIMESTAMPTZ  NOT NULL,
                 request_id  TEXT         NOT NULL,
+                api_key     TEXT         NOT NULL DEFAULT '',
                 tool_name   TEXT         NOT NULL
             )
         """)
@@ -111,13 +112,12 @@ async def init_db(database_url: str) -> asyncpg.Pool:
             CREATE MATERIALIZED VIEW IF NOT EXISTS tool_calls_hourly
             WITH (timescaledb.continuous) AS
             SELECT
-                time_bucket('1 hour', t.time) AS bucket,
-                r.api_key,
-                t.tool_name,
+                time_bucket('1 hour', time) AS bucket,
+                api_key,
+                tool_name,
                 count(*) AS call_count
-            FROM tool_calls t
-            JOIN api_requests r ON t.request_id = r.request_id
-            GROUP BY bucket, r.api_key, t.tool_name
+            FROM tool_calls
+            GROUP BY bucket, api_key, tool_name
         """)
 
         # Refresh policies (every hour)

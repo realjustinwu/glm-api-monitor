@@ -1,0 +1,150 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Token Usage Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "${DS_GLM}" },
+      "targets": [
+        {
+          "rawSql": "SELECT bucket AS time, api_key, model, prompt_tokens, completion_tokens, total_tokens FROM api_requests_hourly WHERE bucket > $__timeFrom() AND bucket < $__timeTo() ORDER BY bucket",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "prompt_tokens" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "completion_tokens" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
+        ]
+      }
+    },
+    {
+      "title": "Request Count & Latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "${DS_GLM}" },
+      "targets": [
+        {
+          "rawSql": "SELECT bucket AS time, api_key, model, request_count, avg_latency_ms FROM api_requests_hourly WHERE bucket > $__timeFrom() AND bucket < $__timeTo() ORDER BY bucket",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "avg_latency_ms" }, "properties": [{ "id": "unit", "value": "ms" }] }
+        ]
+      }
+    },
+    {
+      "title": "Error Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "${DS_GLM}" },
+      "targets": [
+        {
+          "rawSql": "SELECT bucket AS time, api_key, model, error_count, request_count, CASE WHEN request_count > 0 THEN error_count::float / request_count * 100 ELSE 0 END AS error_rate_pct FROM api_requests_hourly WHERE bucket > $__timeFrom() AND bucket < $__timeTo() ORDER BY bucket",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "error_rate_pct" }, "properties": [{ "id": "unit", "value": "percent" }] }
+        ]
+      }
+    },
+    {
+      "title": "Tool Call Frequency",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "${DS_GLM}" },
+      "targets": [
+        {
+          "rawSql": "SELECT tool_name, sum(call_count) AS total_calls FROM tool_calls_hourly WHERE bucket > $__timeFrom() AND bucket < $__timeTo() GROUP BY tool_name ORDER BY total_calls DESC LIMIT 20",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "links": [] },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Top Models by Token Usage",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "${DS_GLM}" },
+      "targets": [
+        {
+          "rawSql": "SELECT model, sum(total_tokens) AS tokens FROM api_requests_hourly WHERE bucket > $__timeFrom() AND bucket < $__timeTo() GROUP BY model ORDER BY tokens DESC",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "title": "Top API Keys by Requests",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "${DS_GLM}" },
+      "targets": [
+        {
+          "rawSql": "SELECT api_key, sum(request_count) AS total_requests FROM api_requests_hourly WHERE bucket > $__timeFrom() AND bucket < $__timeTo() GROUP BY api_key ORDER BY total_requests DESC",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "title": "Tool Calls by API Key",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "${DS_GLM}" },
+      "targets": [
+        {
+          "rawSql": "SELECT api_key, tool_name, sum(call_count) AS total_calls FROM tool_calls_hourly WHERE bucket > $__timeFrom() AND bucket < $__timeTo() GROUP BY api_key, tool_name ORDER BY total_calls DESC LIMIT 50",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "title": "Daily Token Usage Trend",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "postgres", "uid": "${DS_GLM}" },
+      "targets": [
+        {
+          "rawSql": "SELECT bucket AS time, api_key, model, prompt_tokens, completion_tokens FROM api_requests_daily WHERE bucket > $__timeFrom() AND bucket < $__timeTo() ORDER BY bucket",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 80 } }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["glm", "monitor"],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_GLM",
+        "type": "datasource",
+        "query": "postgres",
+        "current": { "selected": true, "text": "TimescaleDB", "value": "TimescaleDB" }
+      }
+    ]
+  },
+  "time": { "from": "now-7d", "to": "now" },
+  "title": "GLM API Monitor",
+  "uid": "glm-api-monitor"
+}

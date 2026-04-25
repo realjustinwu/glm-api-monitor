@@ -18,8 +18,8 @@ async def write_stats(stats: dict) -> None:
             INSERT INTO api_requests
                 (time, request_id, api_key, model, is_streaming,
                  prompt_tokens, completion_tokens, total_tokens,
-                 finish_reason, latency_ms, error_message)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 finish_reason, latency_ms, error_message, api_path)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             """,
             now,
             stats["request_id"],
@@ -32,6 +32,7 @@ async def write_stats(stats: dict) -> None:
             stats["finish_reason"],
             stats["latency_ms"],
             stats.get("error_message"),
+            stats.get("api_path", ""),
         )
 
         for tool_name in stats.get("tool_calls", []):

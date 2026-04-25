@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request, Response
 
 from app.config import settings
 from app.db import init_db, close_db
-from app.stats import mask_api_key, extract_stats, StreamingStatsCollector
+from app.stats import mask_api_key, extract_stats, StreamingStatsCollector, extract_anthropic_stats, AnthropicStreamingStatsCollector
 from app.writer import write_stats
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,8 @@ async def shutdown():
 
 
 async def _proxy_non_streaming(
-    client: httpx.AsyncClient, method: str, path: str, request: Request
+    client: httpx.AsyncClient, method: str, path: str, request: Request,
+    *, api_path: str, extract_fn=extract_stats,
 ) -> Response:
     start = time.monotonic()
     api_key_raw = ""
@@ -77,6 +78,7 @@ async def _proxy_non_streaming(
             "latency_ms": latency,
             "error_message": f"Timeout: {exc}",
             "tool_calls": [],
+            "api_path": api_path,
         })
         return Response(content=str(exc), status_code=504)
 
@@ -88,10 +90,11 @@ async def _proxy_non_streaming(
     except Exception:
         resp_json = {}
 
-    stats = extract_stats(resp_json if upstream_resp.status_code == 200 else {})
+    stats = extract_fn(resp_json if upstream_resp.status_code == 200 else {})
     stats["api_key"] = api_key_masked
     stats["is_streaming"] = False
     stats["latency_ms"] = latency
+    stats["api_path"] = api_path
 
     if upstream_resp.status_code >= 400:
         stats["finish_reason"] = "error"
@@ -107,7 +110,8 @@ async def _proxy_non_streaming(
 
 
 async def _proxy_streaming(
-    client: httpx.AsyncClient, request: Request, path: str
+    client: httpx.AsyncClient, request: Request, path: str,
+    *, api_path: str, collector_cls=StreamingStatsCollector,
 ) -> Response:
     from starlette.responses import StreamingResponse
 
@@ -127,7 +131,7 @@ async def _proxy_streaming(
         pass
 
     api_key_masked = mask_api_key(api_key_raw) if api_key_raw else ""
-    upstream_url = f"{settings.glm_upstream_url}/api/paas/v4/{path}"
+    upstream_url = f"{settings.glm_upstream_url}{path}"
 
     upstream_headers = dict(request.headers)
     upstream_headers.pop("host", None)
@@ -141,9 +145,10 @@ async def _proxy_streaming(
     )
     upstream_resp = await client.send(req, stream=True)
 
-    collector = StreamingStatsCollector()
+    collector = collector_cls()
     api_key_final = api_key_masked
     model_final = model
+    api_path_final = api_path
 
     async def stream_and_collect():
         try:
@@ -159,6 +164,7 @@ async def _proxy_streaming(
             stats["model"] = stats["model"] or model_final
             stats["is_streaming"] = True
             stats["latency_ms"] = latency
+            stats["api_path"] = api_path_final
 
             if upstream_resp.status_code >= 400:
                 stats["finish_reason"] = "error"
@@ -185,9 +191,35 @@ async def proxy_route(request: Request, path: str):
             request_body = {}
 
         is_streaming = request_body.get("stream", False)
+        api_path = f"/api/paas/v4/{path}"
 
         if is_streaming:
-            return await _proxy_streaming(client, request, path)
+            return await _proxy_streaming(client, request, api_path, api_path=api_path)
 
         method = request.method
-        return await _proxy_non_streaming(client, method, f"/api/paas/v4/{path}", request)
+        return await _proxy_non_streaming(client, method, api_path, request, api_path=api_path)
+
+
+@app.api_route("/api/anthropic/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def anthropic_proxy_route(request: Request, path: str):
+    async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+        body = await request.body()
+        try:
+            request_body = json.loads(body)
+        except Exception:
+            request_body = {}
+
+        is_streaming = request_body.get("stream", False)
+        api_path = f"/api/anthropic/{path}"
+
+        if is_streaming:
+            return await _proxy_streaming(
+                client, request, api_path, api_path=api_path,
+                collector_cls=AnthropicStreamingStatsCollector,
+            )
+
+        method = request.method
+        return await _proxy_non_streaming(
+            client, method, api_path, request,
+            api_path=api_path, extract_fn=extract_anthropic_stats,
+        )

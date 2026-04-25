@@ -35,8 +35,14 @@ async def init_db(database_url: str) -> asyncpg.Pool:
                 total_tokens       INTEGER NOT NULL DEFAULT 0,
                 finish_reason TEXT      NOT NULL DEFAULT '',
                 latency_ms   DOUBLE PRECISION NOT NULL DEFAULT 0,
-                error_message TEXT
+                error_message TEXT,
+                api_path     TEXT         NOT NULL DEFAULT ''
             )
+        """)
+
+        # Migration: add api_path column if missing (for existing deployments)
+        await conn.execute("""
+            ALTER TABLE api_requests ADD COLUMN IF NOT EXISTS api_path TEXT NOT NULL DEFAULT ''
         """)
 
         await conn.execute("""
@@ -69,18 +75,27 @@ async def init_db(database_url: str) -> asyncpg.Pool:
             ON api_requests (model, time DESC)
         """)
         await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_requests_api_path
+            ON api_requests (api_path, time DESC)
+        """)
+        await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_tool_calls_name
             ON tool_calls (tool_name, time DESC)
         """)
 
+        # Migration: drop old continuous aggregates without api_path and recreate
+        for view in ("api_requests_hourly", "api_requests_daily"):
+            await conn.execute(f"DROP MATERIALIZED VIEW IF EXISTS {view}")
+
         # Continuous aggregates
         await conn.execute("""
-            CREATE MATERIALIZED VIEW IF NOT EXISTS api_requests_hourly
+            CREATE MATERIALIZED VIEW api_requests_hourly
             WITH (timescaledb.continuous) AS
             SELECT
                 time_bucket('1 hour', time) AS bucket,
                 api_key,
                 model,
+                api_path,
                 count(*) AS request_count,
                 sum(prompt_tokens) AS prompt_tokens,
                 sum(completion_tokens) AS completion_tokens,
@@ -88,16 +103,17 @@ async def init_db(database_url: str) -> asyncpg.Pool:
                 avg(latency_ms) AS avg_latency_ms,
                 count(*) FILTER (WHERE error_message IS NOT NULL) AS error_count
             FROM api_requests
-            GROUP BY bucket, api_key, model
+            GROUP BY bucket, api_key, model, api_path
         """)
 
         await conn.execute("""
-            CREATE MATERIALIZED VIEW IF NOT EXISTS api_requests_daily
+            CREATE MATERIALIZED VIEW api_requests_daily
             WITH (timescaledb.continuous) AS
             SELECT
                 time_bucket('1 day', time) AS bucket,
                 api_key,
                 model,
+                api_path,
                 count(*) AS request_count,
                 sum(prompt_tokens) AS prompt_tokens,
                 sum(completion_tokens) AS completion_tokens,
@@ -105,7 +121,7 @@ async def init_db(database_url: str) -> asyncpg.Pool:
                 avg(latency_ms) AS avg_latency_ms,
                 count(*) FILTER (WHERE error_message IS NOT NULL) AS error_count
             FROM api_requests
-            GROUP BY bucket, api_key, model
+            GROUP BY bucket, api_key, model, api_path
         """)
 
         await conn.execute("""

@@ -172,6 +172,7 @@ async def _proxy_streaming(
 
             await write_stats(stats=stats)
             await upstream_resp.aclose()
+            await client.aclose()
 
     return StreamingResponse(
         stream_and_collect(),
@@ -183,41 +184,43 @@ async def _proxy_streaming(
 
 @app.api_route("/api/paas/v4/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy_route(request: Request, path: str):
+    body = await request.body()
+    try:
+        request_body = json.loads(body)
+    except Exception:
+        request_body = {}
+
+    is_streaming = request_body.get("stream", False)
+    api_path = f"/api/paas/v4/{path}"
+
+    if is_streaming:
+        client = httpx.AsyncClient(timeout=settings.request_timeout)
+        return await _proxy_streaming(client, request, api_path, api_path=api_path)
+
     async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
-        body = await request.body()
-        try:
-            request_body = json.loads(body)
-        except Exception:
-            request_body = {}
-
-        is_streaming = request_body.get("stream", False)
-        api_path = f"/api/paas/v4/{path}"
-
-        if is_streaming:
-            return await _proxy_streaming(client, request, api_path, api_path=api_path)
-
         method = request.method
         return await _proxy_non_streaming(client, method, api_path, request, api_path=api_path)
 
 
 @app.api_route("/api/anthropic/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def anthropic_proxy_route(request: Request, path: str):
+    body = await request.body()
+    try:
+        request_body = json.loads(body)
+    except Exception:
+        request_body = {}
+
+    is_streaming = request_body.get("stream", False)
+    api_path = f"/api/anthropic/{path}"
+
+    if is_streaming:
+        client = httpx.AsyncClient(timeout=settings.request_timeout)
+        return await _proxy_streaming(
+            client, request, api_path, api_path=api_path,
+            collector_cls=AnthropicStreamingStatsCollector,
+        )
+
     async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
-        body = await request.body()
-        try:
-            request_body = json.loads(body)
-        except Exception:
-            request_body = {}
-
-        is_streaming = request_body.get("stream", False)
-        api_path = f"/api/anthropic/{path}"
-
-        if is_streaming:
-            return await _proxy_streaming(
-                client, request, api_path, api_path=api_path,
-                collector_cls=AnthropicStreamingStatsCollector,
-            )
-
         method = request.method
         return await _proxy_non_streaming(
             client, method, api_path, request,

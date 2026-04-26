@@ -151,10 +151,13 @@ async def _proxy_streaming(
     api_path_final = api_path
 
     async def stream_and_collect():
+        buffer = ""
         try:
             async for chunk in upstream_resp.aiter_bytes():
                 text = chunk.decode("utf-8", errors="replace")
-                for line in text.split("\n"):
+                buffer += text
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
                     collector.process_chunk(line)
                 yield chunk
         finally:
@@ -225,4 +228,45 @@ async def anthropic_proxy_route(request: Request, path: str):
         return await _proxy_non_streaming(
             client, method, api_path, request,
             api_path=api_path, extract_fn=extract_anthropic_stats,
+        )
+
+
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+async def fallback_proxy(request: Request, path: str):
+    """Proxy all unmatched requests to upstream and log them for future API support."""
+    method = request.method
+    full_path = f"/{path}" if path else "/"
+    logger.info(
+        "Unmatched API request: method=%s path=%s content_length=%s",
+        method, full_path, request.headers.get("content-length", "0"),
+    )
+
+    body = await request.body()
+    upstream_url = f"{settings.glm_upstream_url}{full_path}"
+
+    upstream_headers = dict(request.headers)
+    upstream_headers.pop("host", None)
+    upstream_headers.pop("content-length", None)
+
+    async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+        try:
+            upstream_resp = await client.request(
+                method=method,
+                url=upstream_url,
+                content=body,
+                headers=upstream_headers,
+            )
+        except httpx.TimeoutException as exc:
+            logger.error("Fallback proxy timeout: %s %s -> %s", method, full_path, exc)
+            return Response(content=str(exc), status_code=504)
+
+        logger.info(
+            "Fallback proxy response: method=%s path=%s status=%d",
+            method, full_path, upstream_resp.status_code,
+        )
+
+        return Response(
+            content=upstream_resp.content,
+            status_code=upstream_resp.status_code,
+            headers=dict(upstream_resp.headers),
         )

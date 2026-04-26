@@ -11,7 +11,6 @@ import os
 import subprocess
 import sys
 import time
-from contextlib import asynccontextmanager
 
 import httpx
 import pytest
@@ -149,9 +148,18 @@ def collect_anthropic_streaming_usage(lines: list[str]) -> dict:
         elif event == "message_delta":
             u = data.get("usage", {})
             result["output_tokens"] = u.get("output_tokens", result.get("output_tokens", 0))
-            result["input_tokens"] = result.get("input_tokens", 0)
+            result["input_tokens"] = u.get("input_tokens", result.get("input_tokens", 0))
 
     return result
+
+
+def print_sse(lines: list[str], label: str) -> None:
+    """Print all SSE lines for debugging."""
+    print(f"\n--- {label} SSE ---")
+    for line in lines:
+        if line.strip():
+            print(line)
+    print(f"--- end ---")
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +179,9 @@ async def test_glm_chat_non_streaming(client: httpx.AsyncClient, api_key: str):
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
+
+    print(f"\n--- GLM non-streaming response ---")
+    print(json.dumps(data, indent=2, ensure_ascii=False))
 
     usage = data.get("usage", {})
     assert usage.get("prompt_tokens", 0) > 0, f"prompt_tokens should be > 0, got {usage}"
@@ -202,7 +213,9 @@ async def test_glm_chat_streaming(client: httpx.AsyncClient, api_key: str):
             lines.append(line)
 
     assert lines, "Should receive SSE lines"
+    print_sse(lines, "GLM streaming chat")
     usage = collect_streaming_usage(lines)
+    print(f"Parsed usage: {usage}")
     assert usage.get("total_tokens", 0) > 0, f"Streaming should report usage, got {usage}"
 
 
@@ -224,6 +237,9 @@ async def test_glm_tool_call_non_streaming(client: httpx.AsyncClient, api_key: s
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
+
+    print(f"\n--- GLM tool call non-streaming response ---")
+    print(json.dumps(data, indent=2, ensure_ascii=False))
 
     choice = data.get("choices", [{}])[0]
     tool_calls = choice.get("message", {}).get("tool_calls", [])
@@ -256,6 +272,8 @@ async def test_glm_tool_call_streaming(client: httpx.AsyncClient, api_key: str):
             lines.append(line)
 
     assert lines, "Should receive SSE lines"
+    print_sse(lines, "GLM tool call streaming")
+
     # Check that tool_calls appear in streaming output
     found_tool_call = False
     for line in lines:
@@ -300,13 +318,16 @@ async def test_anthropic_non_streaming(client: httpx.AsyncClient, api_key: str):
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
+    print(f"\n--- Anthropic non-streaming response ---")
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+
     usage = data.get("usage", {})
     assert usage.get("input_tokens", 0) > 0, f"input_tokens should be > 0, got {usage}"
     assert usage.get("output_tokens", 0) > 0, f"output_tokens should be > 0, got {usage}"
 
 
 # ---------------------------------------------------------------------------
-# Test 6: Anthropic streaming — verify line buffer fix (prompt_tokens > 0)
+# Test 6: Anthropic streaming — verify prompt_tokens > 0
 # ---------------------------------------------------------------------------
 
 
@@ -333,11 +354,15 @@ async def test_anthropic_streaming_prompt_tokens(client: httpx.AsyncClient, api_
             lines.append(line)
 
     assert lines, "Should receive SSE lines"
+    print_sse(lines, "Anthropic streaming")
     usage = collect_anthropic_streaming_usage(lines)
-    # Zhipu's Anthropic format may not report input_tokens in streaming,
-    # but output_tokens should be present (verifies line buffer fix works)
+    print(f"Parsed usage: {usage}")
+
+    assert usage.get("input_tokens", 0) > 0, (
+        f"prompt_tokens (input_tokens) should be > 0, got {usage}"
+    )
     assert usage.get("output_tokens", 0) > 0, (
-        f"output_tokens should be > 0 in streaming, got {usage}"
+        f"output_tokens should be > 0, got {usage}"
     )
 
 
@@ -358,6 +383,9 @@ async def test_coding_api_fallback(client: httpx.AsyncClient, api_key: str):
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
+
+    print(f"\n--- Coding API response ---")
+    print(json.dumps(data, indent=2, ensure_ascii=False))
 
     usage = data.get("usage", {})
     assert usage.get("total_tokens", 0) > 0, f"Coding API should return usage, got {usage}"

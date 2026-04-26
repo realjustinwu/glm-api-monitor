@@ -169,6 +169,7 @@ class AnthropicStreamingStatsCollector:
             if delta.get("stop_reason"):
                 self.finish_reason = delta["stop_reason"]
             usage = data.get("usage", {})
+            self.prompt_tokens = usage.get("input_tokens", self.prompt_tokens)
             self.completion_tokens = usage.get("output_tokens", self.completion_tokens)
             self.total_tokens = self.prompt_tokens + self.completion_tokens
 

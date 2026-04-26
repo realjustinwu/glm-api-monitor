@@ -166,7 +166,25 @@ client = OpenAI(
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# 本地启动代理
+uvicorn app.main:app --port 8000
+```
+
+如果本地没有 TimescaleDB，代理仍然可以正常工作——请求会被正常转发，统计数据会打印在日志中（写入数据库会优雅地跳过）。
+
+### 运行单元测试
+
+```bash
 pytest tests/ -v
+```
+
+### 运行集成测试
+
+集成测试会启动本地代理并真实调用智谱 API：
+
+```bash
+GLM_API_KEY=你的key pytest -m integration -v -s
 ```
 
 ## 项目结构

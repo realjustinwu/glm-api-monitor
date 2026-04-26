@@ -19,13 +19,19 @@ app = FastAPI(title="GLM API Monitor Proxy")
 
 @app.on_event("startup")
 async def startup():
-    await init_db(settings.database_url)
+    try:
+        await init_db(settings.database_url)
+    except Exception as exc:
+        logger.warning("Database unavailable (%s), proxy will run without stats persistence", exc)
     logger.info("Proxy started, upstream=%s", settings.glm_upstream_url)
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    await close_db()
+    try:
+        await close_db()
+    except Exception:
+        pass
 
 
 async def _proxy_non_streaming(
@@ -102,10 +108,14 @@ async def _proxy_non_streaming(
 
     await write_stats(stats=stats)
 
+    resp_headers = dict(upstream_resp.headers)
+    resp_headers.pop("content-encoding", None)
+    resp_headers.pop("transfer-encoding", None)
+
     return Response(
         content=upstream_resp.content,
         status_code=upstream_resp.status_code,
-        headers=dict(upstream_resp.headers),
+        headers=resp_headers,
     )
 
 
@@ -177,10 +187,14 @@ async def _proxy_streaming(
             await upstream_resp.aclose()
             await client.aclose()
 
+    stream_headers = dict(upstream_resp.headers)
+    stream_headers.pop("content-encoding", None)
+    stream_headers.pop("transfer-encoding", None)
+
     return StreamingResponse(
         stream_and_collect(),
         status_code=upstream_resp.status_code,
-        headers=dict(upstream_resp.headers),
+        headers=stream_headers,
         media_type="text/event-stream",
     )
 
@@ -265,8 +279,12 @@ async def fallback_proxy(request: Request, path: str):
             method, full_path, upstream_resp.status_code,
         )
 
+        resp_headers = dict(upstream_resp.headers)
+        resp_headers.pop("content-encoding", None)
+        resp_headers.pop("transfer-encoding", None)
+
         return Response(
             content=upstream_resp.content,
             status_code=upstream_resp.status_code,
-            headers=dict(upstream_resp.headers),
+            headers=resp_headers,
         )

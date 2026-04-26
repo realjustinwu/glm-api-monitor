@@ -9,7 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 async def write_stats(stats: dict) -> None:
-    pool = await get_pool()
+    try:
+        pool = await get_pool()
+    except RuntimeError:
+        logger.debug("DB unavailable, skipping stats write for request %s", stats.get("request_id", ""))
+        return
+
     now = datetime.now(timezone.utc)
 
     async with pool.acquire() as conn:

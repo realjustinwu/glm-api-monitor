@@ -158,13 +158,31 @@ client = OpenAI(
 
 Raw data retained for 90 days, aggregates kept indefinitely.
 
-## Development
+## Local Development
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# Start the proxy locally
+uvicorn app.main:app --port 8000
+```
+
+If you don't have TimescaleDB running locally, the proxy will still work — requests are forwarded normally and stats are logged (writes to DB will fail gracefully).
+
+### Run Unit Tests
+
+```bash
 pytest tests/ -v
+```
+
+### Run Integration Tests
+
+Integration tests start a local proxy and make real API calls to Zhipu:
+
+```bash
+GLM_API_KEY=your-key pytest -m integration -v -s
 ```
 
 ## Project Structure
